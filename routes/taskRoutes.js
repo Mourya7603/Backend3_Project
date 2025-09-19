@@ -40,7 +40,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Update a task
-router.post('/:id', authenticateToken, async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const task = await Task.findByIdAndUpdate(
       req.params.id, 
