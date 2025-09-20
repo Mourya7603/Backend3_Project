@@ -87,4 +87,51 @@ router.get('/me', authenticateToken, async (req, res) => {
   }
 });
 
+router.put('/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user.userId);
+    
+    const isPasswordValid = await user.comparePassword(currentPassword);
+    if (!isPasswordValid) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+    
+    user.password = newPassword;
+    await user.save();
+    
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/data-export', authenticateToken, async (req, res) => {
+  try {
+    const userData = {
+      profile: req.user,
+      tasks: await Task.find({ owners: req.user.userId }),
+      projects: await Project.find({ $or: [{ owner: req.user.userId }, { owners: req.user.userId }] }),
+      teams: await Team.find({ members: req.user.userId })
+    };
+    
+    res.json(userData);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/account', authenticateToken, async (req, res) => {
+  try {
+    // Delete user account and associated data
+    await User.findByIdAndDelete(req.user.userId);
+    await Task.deleteMany({ owners: req.user.userId });
+    // Add other data cleanup as needed
+    
+    res.json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

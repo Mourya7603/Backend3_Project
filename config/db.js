@@ -4,7 +4,10 @@ const mongoUri = process.env.MONGODB;
 
 const initializeDatabase = async () => {
   await mongoose
-    .connect(mongoUri)
+    .connect(mongoUri, {
+      serverSelectionTimeoutMS: 30000, // 30 seconds timeout
+      socketTimeoutMS: 45000, // 45 seconds socket timeout
+    })
     .then(() => {
       console.log("Connected to Database");
     })
