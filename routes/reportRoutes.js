@@ -32,6 +32,7 @@ router.get('/completed-tasks', authenticateToken, async (req, res) => {
 
     res.json(completedTasks);
   } catch (error) {
+    console.error('Completed tasks error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -53,6 +54,7 @@ router.get('/pending', authenticateToken, async (req, res) => {
       pendingTasks 
     });
   } catch (error) {
+    console.error('Pending tasks error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -71,39 +73,99 @@ router.get('/grouped-tasks', authenticateToken, async (req, res) => {
       matchStage.status = status;
     }
 
-    const groupedData = await Task.aggregate([
-      { $match: matchStage },
-      { $unwind: groupBy === 'owners' ? '$owners' : false },
-      {
-        $group: {
-          _id: `$${groupBy}`,
-          count: { $sum: 1 },
-          totalDays: { $sum: '$timeToComplete' }
-        }
-      },
-      {
-        $lookup: {
-          from: groupBy === 'owners' ? 'users' : `${groupBy}s`,
-          localField: '_id',
-          foreignField: '_id',
-          as: 'groupInfo'
-        }
-      },
-      {
-        $project: {
-          _id: 0,
-          groupId: '$_id',
-          name: { $arrayElemAt: ['$groupInfo.name', 0] },
-          count: 1,
-          totalDays: 1
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
+    // Handle different grouping strategies
+    let aggregationPipeline;
 
-    res.json(groupedData);
+    if (groupBy === 'owners') {
+      // For owners (array field), we need to unwind first
+      aggregationPipeline = [
+        { $match: matchStage },
+        { $unwind: '$owners' },
+        {
+          $group: {
+            _id: '$owners',
+            count: { $sum: 1 },
+            totalDays: { $sum: '$timeToComplete' }
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'ownerInfo'
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            name: { 
+              $ifNull: [
+                { $arrayElemAt: ['$ownerInfo.name', 0] },
+                { $arrayElemAt: ['$ownerInfo.email', 0] }
+              ]
+            },
+            email: { $arrayElemAt: ['$ownerInfo.email', 0] },
+            count: 1,
+            totalDays: 1
+          }
+        },
+        { $sort: { count: -1 } }
+      ];
+    } else {
+      // For team and project (single reference fields)
+      aggregationPipeline = [
+        { $match: matchStage },
+        {
+          $group: {
+            _id: `$${groupBy}`,
+            count: { $sum: 1 },
+            totalDays: { $sum: '$timeToComplete' }
+          }
+        },
+        {
+          $lookup: {
+            from: `${groupBy}s`,
+            localField: '_id',
+            foreignField: '_id',
+            as: 'groupInfo'
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            groupId: '$_id',
+            name: { $arrayElemAt: ['$groupInfo.name', 0] },
+            count: 1,
+            totalDays: 1
+          }
+        },
+        { $sort: { count: -1 } }
+      ];
+    }
+
+    console.log('Running aggregation for:', groupBy, 'with pipeline:', JSON.stringify(aggregationPipeline, null, 2));
+
+    const groupedData = await Task.aggregate(aggregationPipeline);
+
+    // Handle null/undefined names
+    const formattedData = groupedData.map(item => ({
+      ...item,
+      name: item.name || 'Unassigned'
+    }));
+
+    console.log('Grouped data result:', formattedData);
+
+    res.json(formattedData);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Grouped tasks error:', error);
+    console.error('Error details:', {
+      groupBy: req.query.groupBy,
+      status: req.query.status,
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ error: 'Failed to fetch grouped tasks', details: error.message });
   }
 });
 
